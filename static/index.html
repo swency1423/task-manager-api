@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Manager</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #f3f4f6; color: #1f2937;
+      margin: 0; padding: 32px 16px;
+    }
+    .box { max-width: 560px; margin: 0 auto; }
+    h1 { text-align: center; margin: 0 0 4px; }
+    .sub { text-align: center; color: #6b7280; margin: 0 0 24px; }
+
+    .card { background: #fff; border-radius: 12px; padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 12px; }
+
+    input[type=text] {
+      width: 100%; padding: 10px; margin-bottom: 8px;
+      border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px;
+    }
+    button {
+      border: none; border-radius: 8px; padding: 8px 14px;
+      font-size: 14px; cursor: pointer; color: #fff;
+    }
+    .add { background: #2563eb; width: 100%; padding: 10px; font-size: 15px; }
+    .edit { background: #6b7280; }
+    .del  { background: #dc2626; }
+    .save { background: #16a34a; }
+
+    .task { display: flex; align-items: flex-start; gap: 12px; }
+    .task input[type=checkbox] { width: 20px; height: 20px; margin-top: 3px; cursor: pointer; }
+    .info { flex: 1; }
+    .title { font-weight: 600; }
+    .desc  { color: #6b7280; font-size: 14px; margin-top: 2px; }
+    .done .title { text-decoration: line-through; color: #9ca3af; }
+    .btns { display: flex; gap: 6px; }
+    .empty { text-align: center; color: #9ca3af; padding: 24px; }
+    .error { background: #fee2e2; color: #991b1b; padding: 10px;
+             border-radius: 8px; margin-bottom: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Task Manager</h1>
+    <p class="sub">Add, finish, edit and delete your tasks</p>
+
+    <div id="error" class="error"></div>
+
+    <div class="card">
+      <input type="text" id="title" placeholder="Task title" maxlength="100">
+      <input type="text" id="desc" placeholder="Description (optional)" maxlength="500">
+      <button class="add" id="addBtn">+ Add Task</button>
+    </div>
+
+    <div id="list"></div>
+  </div>
+
+  <script>
+    const list = document.getElementById("list");
+    const errorBox = document.getElementById("error");
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.style.display = msg ? "block" : "none";
+    }
+
+    // Talk to the API (same server, so no extra setup)
+    async function api(path, method = "GET", body) {
+      const res = await fetch(path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error("Something went wrong (" + res.status + ")");
+      return res.status === 204 ? null : res.json();
+    }
+
+    async function loadTasks() {
+      try {
+        showError("");
+        const tasks = await api("/tasks");
+        render(tasks);
+      } catch (e) { showError(e.message); }
+    }
+
+    function render(tasks) {
+      list.innerHTML = "";
+      if (tasks.length === 0) {
+        list.innerHTML = '<div class="empty">No tasks yet. Add your first one above.</div>';
+        return;
+      }
+      tasks.forEach(t => list.appendChild(taskCard(t)));
+    }
+
+    function taskCard(t) {
+      const card = document.createElement("div");
+      card.className = "card task" + (t.completed ? " done" : "");
+
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.checked = t.completed;
+      check.onchange = () => update(t.id, { completed: check.checked });
+
+      const info = document.createElement("div");
+      info.className = "info";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = t.title;
+      const desc = document.createElement("div");
+      desc.className = "desc";
+      desc.textContent = t.description;
+      info.append(title, desc);
+
+      const btns = document.createElement("div");
+      btns.className = "btns";
+      const editBtn = document.createElement("button");
+      editBtn.className = "edit";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => startEdit(card, t);
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "Delete";
+      delBtn.onclick = () => remove(t.id);
+      btns.append(editBtn, delBtn);
+
+      card.append(check, info, btns);
+      return card;
+    }
+
+    function startEdit(card, t) {
+      card.innerHTML = "";
+      card.className = "card";
+      const wrap = document.createElement("div");
+      wrap.style.width = "100%";
+      const titleIn = document.createElement("input");
+      titleIn.type = "text"; titleIn.value = t.title; titleIn.maxLength = 100;
+      const descIn = document.createElement("input");
+      descIn.type = "text"; descIn.value = t.description; descIn.maxLength = 500;
+      const save = document.createElement("button");
+      save.className = "save"; save.textContent = "Save";
+      save.onclick = () => {
+        if (!titleIn.value.trim()) return showError("Title cannot be empty");
+        update(t.id, { title: titleIn.value.trim(), description: descIn.value });
+      };
+      wrap.append(titleIn, descIn, save);
+      card.appendChild(wrap);
+    }
+
+    async function addTask() {
+      const title = document.getElementById("title");
+      const desc = document.getElementById("desc");
+      if (!title.value.trim()) return showError("Please type a title");
+      try {
+        await api("/tasks", "POST", { title: title.value.trim(), description: desc.value });
+        title.value = ""; desc.value = "";
+        loadTasks();
+      } catch (e) { showError(e.message); }
+    }
+
+    async function update(id, data) {
+      try { await api("/tasks/" + id, "PUT", data); loadTasks(); }
+      catch (e) { showError(e.message); }
+    }
+
+    async function remove(id) {
+      if (!confirm("Delete this task?")) return;
+      try { await api("/tasks/" + id, "DELETE"); loadTasks(); }
+      catch (e) { showError(e.message); }
+    }
+
+    document.getElementById("addBtn").onclick = addTask;
+    document.getElementById("title").addEventListener("keydown", e => { if (e.key === "Enter") addTask(); });
+    loadTasks();
+  </script>
+</body>
+</html>
